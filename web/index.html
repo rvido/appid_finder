@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>App ID Finder - iOS & Android Bundle IDs</title>
+    <link rel="stylesheet" href="/web/styles.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="background-gradient"></div>
+    <div class="container">
+        <header class="hero-section">
+            <div class="hero-content">
+                <div class="hero-icon">
+                    <i class="fas fa-mobile-alt"></i>
+                    <i class="fab fa-apple"></i>
+                    <i class="fab fa-android"></i>
+                </div>
+                <h1 class="hero-title">App ID Finder</h1>
+                <p class="hero-subtitle">Discover iOS and Android app bundle IDs instantly</p>
+                <div class="hero-features">
+                    <span class="feature-tag"><i class="fab fa-apple"></i> iOS Bundle IDs</span>
+                    <span class="feature-tag"><i class="fab fa-android"></i> Android Package Names</span>
+                    <span class="feature-tag"><i class="fas fa-link"></i> Direct Store Links</span>
+                </div>
+            </div>
+        </header>
+
+                <main class="search-section">
+            <div class="search-container">
+                <div class="search-header">
+                    <h2>Search for an App</h2>
+                    <p>Enter the name of any popular app to find its bundle ID</p>
+                </div>
+                
+                <form class="search-form" id="searchForm">
+                    <div class="search-input-wrapper">
+                        <div class="search-icon">
+                            <i class="fas fa-search"></i>
+                        </div>
+                        <input 
+                            type="text" 
+                            id="searchInput" 
+                            placeholder="Try: YouTube, Instagram, Facebook, TikTok..."
+                            class="search-input"
+                            autocomplete="off"
+                        >
+                        <button type="submit" class="search-button" id="searchButton">
+                            <span class="button-text">Search</span>
+                            <span class="button-loading">
+                                <i class="fas fa-spinner fa-spin"></i>
+                            </span>
+                        </button>
+                    </div>
+                </form>
+
+                <div class="popular-searches">
+                    <span class="popular-label">Popular searches:</span>
+                    <div class="popular-tags">
+                        <button class="popular-tag" data-search="YouTube">
+                            <i class="fab fa-youtube"></i> YouTube
+                        </button>
+                        <button class="popular-tag" data-search="Instagram">
+                            <i class="fab fa-instagram"></i> Instagram
+                        </button>
+                        <button class="popular-tag" data-search="Facebook">
+                            <i class="fab fa-facebook"></i> Facebook
+                        </button>
+                        <button class="popular-tag" data-search="TikTok">
+                            <i class="fab fa-tiktok"></i> TikTok
+                        </button>
+                        <button class="popular-tag" data-search="FaceTime">
+                            <i class="fas fa-video"></i> FaceTime
+                        </button>
+                        <button class="popular-tag" data-search="Royal Kingdom">
+                            <i class="fas fa-crown"></i> Royal Kingdom
+                        </button>
+                        <button class="popular-tag" data-search="Royal Match">
+                            <i class="fas fa-gem"></i> Royal Match
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <section class="results-section" id="resultsSection">
+            <div class="results-container" id="resultsContainer">
+                <!-- Results will be dynamically inserted here -->
+            </div>
+            <div class="download-bar" id="downloadBar" style="display:none; text-align:center; margin-top:1rem;">
+                <button id="downloadJsonBtn" class="download-json-btn">
+                    <i class="fas fa-download"></i> Download JSON
+                </button>
+            </div>
+        </section>
+
+        <footer class="footer">
+            <div class="footer-content">
+                <p>&copy; 2025 App ID Finder. Built with Rust & Axum.</p>
+                <div class="footer-links">
+                    <a href="/api/health" class="footer-link">
+                        <i class="fas fa-heart"></i> API Status
+                    </a>
+                </div>
+            </div>
+        </footer>
+    </div>
+
+    <script>
+        class BundleIdFinder {
+            constructor() {
+                this.searchForm = document.getElementById('searchForm');
+                this.searchInput = document.getElementById('searchInput');
+                this.searchButton = document.getElementById('searchButton');
+                this.resultsSection = document.getElementById('resultsSection');
+                this.resultsContainer = document.getElementById('resultsContainer');
+                
+                this.initEventListeners();
+            }
+
+            initEventListeners() {
+                // Form submission
+                this.searchForm.addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    this.performSearch();
+                });
+
+                // Popular tag clicks
+                document.querySelectorAll('.popular-tag').forEach(tag => {
+                    tag.addEventListener('click', () => {
+                        const searchTerm = tag.getAttribute('data-search');
+                        this.searchInput.value = searchTerm;
+                        this.performSearch();
+                    });
+                });
+
+                // Input animations
+                this.searchInput.addEventListener('focus', () => {
+                    this.searchInput.parentElement.classList.add('focused');
+                });
+
+                this.searchInput.addEventListener('blur', () => {
+                    this.searchInput.parentElement.classList.remove('focused');
+                });
+            }
+
+            showLoading() {
+                this.searchButton.classList.add('loading');
+                this.searchButton.disabled = true;
+            }
+
+            hideLoading() {
+                this.searchButton.classList.remove('loading');
+                this.searchButton.disabled = false;
+            }
+
+            async performSearch() {
+                const query = this.searchInput.value.trim();
+                
+                if (!query) {
+                    this.showError('Please enter an app name to search.');
+                    return;
+                }
+
+                this.showLoading();
+                this.clearResults();
+
+                try {
+                    const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
+                    const data = await response.json();
+                    
+                    this.hideLoading();
+                    this.displayResults(data);
+                } catch (error) {
+                    this.hideLoading();
+                    this.showError('Search failed. Please try again.');
+                }
+            }
+
+            clearResults() {
+                this.resultsContainer.innerHTML = '';
+                this.resultsSection.style.display = 'none';
+            }
+
+            displayResults(data) {
+                this.resultsSection.style.display = 'block';
+                
+                if (data.results.length === 0) {
+                    this.resultsContainer.innerHTML = `
+                        <div class="no-results">
+                            <div class="no-results-icon">
+                                <i class="fas fa-search"></i>
+                            </div>
+                            <h3>No Results Found</h3>
+                            <p>${data.query}</p>
+                            <div class="suggestions">
+                                <p>Try searching for: YouTube, Instagram, Facebook, TikTok, FaceTime, Royal Kingdom, or Royal Match</p>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    this.resultsContainer.innerHTML = `
+                        <div class="results-header">
+                            <h2>Search Results</h2>
+                            <span class="results-count">${data.count} result${data.count !== 1 ? 's' : ''} found</span>
+                        </div>
+                        <div class="results-grid">
+                            ${data.results.map(result => this.createResultCard(result)).join('')}
+                        </div>
+                    `;
+                }
+            }
+
+            createResultCard(result) {
+                const platformClass = result.platform.toLowerCase();
+                const platformIcon = result.platform === 'iOS' ? 'fab fa-apple' : 'fab fa-android';
+                const idLabel = result.platform === 'Android' ? 'Package Name' : 'Bundle ID';
+                
+                return `
+                    <div class="result-card ${platformClass}" data-platform="${result.platform}">
+                        <div class="result-header">
+                            <div class="platform-badge">
+                                <i class="${platformIcon}"></i>
+                                <span>${result.platform}</span>
+                            </div>
+                            <div class="copy-wrapper">
+                                <button class="copy-button" data-bundle-id="${result.bundleId}" aria-label="Copy ${idLabel}">
+                                    <i class="fas fa-copy"></i>
+                                    <span>Copy</span>
+                                </button>
+                                <div class="copy-tooltip" role="status" aria-live="polite">Copied!</div>
+                            </div>
+                        </div>
+                        
+                        <div class="app-info">
+                            <h3 class="app-name">${result.name}</h3>
+                            <div class="bundle-id">
+                                <label>${idLabel}:</label>
+                                <code class="bundle-code"><i class="${platformIcon}" style="margin-right:6px;"></i>${result.bundleId}</code>
+                            </div>
+                        </div>
+                        
+                        ${result.storeUrl ? `
+                            <div class="store-link">
+                                <a href="${result.storeUrl}" target="_blank" rel="noopener noreferrer" class="store-button">
+                                    <i class="fas fa-external-link-alt"></i>
+                                    View in ${result.platform === 'iOS' ? 'App Store' : 'Play Store'}
+                                </a>
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+            }
+
+            showError(message) {
+                this.resultsSection.style.display = 'block';
+                this.resultsContainer.innerHTML = `
+                    <div class="error-message">
+                        <div class="error-icon">
+                            <i class="fas fa-exclamation-triangle"></i>
+                        </div>
+                        <h3>Error</h3>
+                        <p>${message}</p>
+                    </div>
+                `;
+            }
+        }
+
+        // Global function for copy functionality
+        // Enhanced copy handling with tooltip
+        function attachCopyHandlers() {
+            document.querySelectorAll('.copy-button').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    const value = btn.getAttribute('data-bundle-id');
+                    try {
+                        await navigator.clipboard.writeText(value);
+                        const wrapper = btn.closest('.copy-wrapper');
+                        const tooltip = wrapper.querySelector('.copy-tooltip');
+                        tooltip.classList.add('visible');
+                        btn.classList.add('copied');
+                        setTimeout(() => {
+                            tooltip.classList.remove('visible');
+                            btn.classList.remove('copied');
+                        }, 1600);
+                    } catch (e) {
+                        console.error('Copy failed', e);
+                    }
+                });
+            });
+        }
+
+        // JSON download button handler
+        function setupDownloadButton(latestData) {
+            const bar = document.getElementById('downloadBar');
+            const btn = document.getElementById('downloadJsonBtn');
+            if (!latestData || !latestData.results) {
+                bar.style.display = 'none';
+                return;
+            }
+            bar.style.display = 'block';
+            btn.onclick = () => {
+                const blob = new Blob([JSON.stringify(latestData, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                const base = (latestData.query || 'results').replace(/[^a-z0-9]+/gi, '_').toLowerCase();
+                a.download = `${base}_appid_finder.json`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+            };
+        }
+
+        // Mutation after results inserted
+        const originalDisplayResults = BundleIdFinder.prototype.displayResults;
+        BundleIdFinder.prototype.displayResults = function(data) {
+            originalDisplayResults.call(this, data);
+            attachCopyHandlers();
+            setupDownloadButton(data);
+        };
+
+        // Initialize the app when DOM is loaded
+        document.addEventListener('DOMContentLoaded', () => {
+            new BundleIdFinder();
+        });
+    </script>
+</body>
+</html>
