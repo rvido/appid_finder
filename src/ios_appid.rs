@@ -121,12 +121,15 @@ pub async fn get_bundle_id(app_name: &str) -> Result<String, Box<dyn std::error:
 /// }
 /// ```
 pub async fn get_app_store_url(bundle_id: &str) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-    // 1. Construct the API URL for the iTunes lookup service.
-    let request_url = format!("https://itunes.apple.com/lookup?bundleId={}", bundle_id);
+    // 1. Construct the API URL with proper URL encoding using reqwest::Url::parse_with_params
+    let url = reqwest::Url::parse_with_params(
+        "https://itunes.apple.com/lookup",
+        &[("bundleId", bundle_id)],
+    )?;
 
     // 2. Perform the asynchronous HTTP GET request.
     // The '?' operator will propagate any errors from the request.
-    let response = reqwest::get(&request_url).await?;
+    let response = reqwest::get(url).await?;
 
     // 3. Check if the HTTP request was successful.
     if !response.status().is_success() {
