@@ -1,5 +1,7 @@
 use axum::{extract::Query, response::{Html, Json}, routing::get, Router};
 use std::collections::HashMap;
+use std::net::SocketAddr;
+use local_ip_address::list_afinet_netifas;
 use tower_http::{cors::CorsLayer, services::ServeDir};
 
 pub mod android_appid;
@@ -87,13 +89,40 @@ async fn main() {
         .nest_service("/web", ServeDir::new("web"))
         .layer(cors);
 
-    println!("🚀 App ID Finder server running at http://localhost:3000");
-    println!("Endpoints: /api/search?q=app | /api/health | /web/styles.css");
+    // Preferred port via env APPID_PORT else 3000; provide fallbacks if occupied.
+    let configured_port: u16 = std::env::var("APPID_PORT").ok().and_then(|v| v.parse().ok()).unwrap_or(3000);
+    let mut candidate_ports = vec![configured_port];
+    if configured_port != 3001 { candidate_ports.push(3001); }
+    // ephemeral fallback
+    candidate_ports.push(0);
 
-    axum::serve(
-        tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap(),
-        app,
-    )
-    .await
-    .unwrap();
+    let listener = {
+        let mut bound = None;
+        for p in candidate_ports {
+            let addr: SocketAddr = format!("0.0.0.0:{}", p).parse().unwrap();
+            match tokio::net::TcpListener::bind(addr).await {
+                Ok(l) => { bound = Some(l); break; },
+                Err(e) => {
+                    eprintln!("Port {} unavailable: {}", p, e);
+                    continue;
+                }
+            }
+        }
+        bound.expect("Failed to bind any candidate port")
+    };
+
+    let actual_addr = listener.local_addr().unwrap();
+    println!("🚀 App ID Finder server listening on http://{}", actual_addr);
+    println!("Endpoints: /api/search?q=app | /api/health | /web/styles.css");
+    println!("🌐 Network access URLs (if reachable on your LAN):");
+    if let Ok(ifaces) = list_afinet_netifas() {
+        for (_name, ip) in ifaces {
+            if ip.is_ipv4() && !ip.is_loopback() {
+                println!("   http://{}:{}", ip, actual_addr.port());
+            }
+        }
+    }
+    println!("(Set APPID_PORT to choose a specific port. Chose {}.)", actual_addr.port());
+
+    axum::serve(listener, app).await.unwrap();
 }
