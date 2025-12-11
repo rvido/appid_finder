@@ -217,6 +217,8 @@
                 const platformClass = result.platform.toLowerCase();
                 const platformIcon = result.platform === 'iOS' ? 'fab fa-apple' : 'fab fa-android';
                 const idLabel = result.platform === 'Android' ? 'Package Name' : 'Bundle ID';
+                // Escape the bundle ID for safe use in HTML attribute
+                const escapedBundleId = result.bundleId.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
                 
                 return `
                     <div class="result-card ${platformClass}" data-platform="${result.platform}">
@@ -226,7 +228,7 @@
                                 <span>${result.platform}</span>
                             </div>
                             <div class="copy-wrapper">
-                                <button class="copy-button" data-bundle-id="${result.bundleId}" aria-label="Copy ${idLabel}">
+                                <button class="copy-button" data-bundle-id="${escapedBundleId}" aria-label="Copy ${idLabel}">
                                     <i class="fas fa-copy"></i>
                                     <span>Copy</span>
                                 </button>
@@ -272,10 +274,31 @@
         // Enhanced copy handling with tooltip
         function attachCopyHandlers() {
             document.querySelectorAll('.copy-button').forEach(btn => {
+                // Avoid adding duplicate listeners
+                if (btn.hasAttribute('data-listener-attached')) return;
+                btn.setAttribute('data-listener-attached', 'true');
+                
                 btn.addEventListener('click', async () => {
                     const value = btn.getAttribute('data-bundle-id');
+                    if (!value) {
+                        console.error('No bundle ID found on button');
+                        return;
+                    }
                     try {
-                        await navigator.clipboard.writeText(value);
+                        // Try modern clipboard API first
+                        if (navigator.clipboard && navigator.clipboard.writeText) {
+                            await navigator.clipboard.writeText(value);
+                        } else {
+                            // Fallback for non-HTTPS or older browsers
+                            const textArea = document.createElement('textarea');
+                            textArea.value = value;
+                            textArea.style.position = 'fixed';
+                            textArea.style.left = '-9999px';
+                            document.body.appendChild(textArea);
+                            textArea.select();
+                            document.execCommand('copy');
+                            document.body.removeChild(textArea);
+                        }
                         const wrapper = btn.closest('.copy-wrapper');
                         const tooltip = wrapper.querySelector('.copy-tooltip');
                         tooltip.classList.add('visible');
