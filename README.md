@@ -21,7 +21,7 @@ A Rust-based web application that discovers iOS and Android app bundle IDs insta
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/appid_finder.git
+git clone https://github.com/rvido/appid_finder.git
 cd appid_finder
 
 # Build in release mode
@@ -126,7 +126,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Author
 
-Richard Vidal Dorsch
+Richard Vidal-Dorsch
 
 ## Contributing
 
