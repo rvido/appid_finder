@@ -21,7 +21,7 @@ A Rust-based web application that discovers iOS and Android app bundle IDs insta
 
 ```bash
 # Clone the repository
-git clone https://github.com/rvido/appid_finder.git
+git clone <repository-url>
 cd appid_finder
 
 # Build in release mode
