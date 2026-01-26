@@ -1,4 +1,11 @@
-/* Modern App ID Finder Styles */
+/*
+ * App ID Finder - styles.css
+ * Styling for the web interface
+ *
+ * Copyright (c) 2025, 2026 Richard Vidal Dorsch
+ * SPDX-License-Identifier: MIT
+ * See LICENSE file in the project root for full license information.
+ */
 
 :root {
     --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);

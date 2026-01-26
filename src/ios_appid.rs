@@ -1,6 +1,7 @@
-// A library to fetch iOS app information from the iTunes API.
+// App ID Finder - ios_appid.rs
+// iOS App Store API integration for bundle ID lookup
 //
-// Copyright (c) 2025 Richard Vidal Dorsch
+// Copyright (c) 2025, 2026 Richard Vidal Dorsch
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information.
 

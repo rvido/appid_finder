@@ -1,7 +1,9 @@
-// Copyright (c) 2025 Richard Vidal Dorsch
+// App ID Finder - android_appid.rs
+// Google Play Store scraping for Android app package names
 //
-// This software is released under the MIT License.
-// https://opensource.org/licenses/MIT
+// Copyright (c) 2025, 2026 Richard Vidal Dorsch
+// SPDX-License-Identifier: MIT
+// See LICENSE file in the project root for full license information.
 
 use reqwest;
 use scraper::{Html, Selector};

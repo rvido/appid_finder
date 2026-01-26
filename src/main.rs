@@ -1,3 +1,10 @@
+// App ID Finder - main.rs
+// Web server and API endpoints for iOS and Android app bundle ID lookup
+//
+// Copyright (c) 2025, 2026 Richard Vidal Dorsch
+// SPDX-License-Identifier: MIT
+// See LICENSE file in the project root for full license information.
+
 use axum::{extract::Query, response::{Html, Json}, routing::get, Router};
 use std::collections::HashMap;
 use std::net::SocketAddr;
