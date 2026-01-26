@@ -77,7 +77,9 @@ fn extract_app_info_from_search(html_content: &str) -> Option<AppInfo> {
 ///
 /// A `Result` containing an `Option<AppInfo>` if the operation was successful,
 /// or an error otherwise.
-pub async fn find_app_id(app_name: &str) -> Result<Option<AppInfo>, Box<dyn std::error::Error + Send + Sync>> {
+pub async fn find_app_id(
+    app_name: &str,
+) -> Result<Option<AppInfo>, Box<dyn std::error::Error + Send + Sync>> {
     // Construct the Google Play Store search URL
     let search_query = urlencoding::encode(app_name);
     let request_url = format!(

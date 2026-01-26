@@ -5,10 +5,15 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information.
 
-use axum::{extract::Query, response::{Html, Json}, routing::get, Router};
+use axum::{
+    Router,
+    extract::Query,
+    response::{Html, Json},
+    routing::get,
+};
+use local_ip_address::list_afinet_netifas;
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use local_ip_address::list_afinet_netifas;
 use tower_http::{cors::CorsLayer, services::ServeDir};
 
 pub mod android_appid;
@@ -97,9 +102,14 @@ async fn main() {
         .layer(cors);
 
     // Preferred port via env APPID_PORT else 3000; provide fallbacks if occupied.
-    let configured_port: u16 = std::env::var("APPID_PORT").ok().and_then(|v| v.parse().ok()).unwrap_or(3000);
+    let configured_port: u16 = std::env::var("APPID_PORT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(3000);
     let mut candidate_ports = vec![configured_port];
-    if configured_port != 3001 { candidate_ports.push(3001); }
+    if configured_port != 3001 {
+        candidate_ports.push(3001);
+    }
     // ephemeral fallback
     candidate_ports.push(0);
 
@@ -108,7 +118,10 @@ async fn main() {
         for p in candidate_ports {
             let addr: SocketAddr = format!("0.0.0.0:{}", p).parse().unwrap();
             match tokio::net::TcpListener::bind(addr).await {
-                Ok(l) => { bound = Some(l); break; },
+                Ok(l) => {
+                    bound = Some(l);
+                    break;
+                }
                 Err(e) => {
                     eprintln!("Port {} unavailable: {}", p, e);
                     continue;
@@ -119,7 +132,10 @@ async fn main() {
     };
 
     let actual_addr = listener.local_addr().unwrap();
-    println!("🚀 App ID Finder server listening on http://{}", actual_addr);
+    println!(
+        "🚀 App ID Finder server listening on http://{}",
+        actual_addr
+    );
     println!("Endpoints: /api/search?q=app | /api/health | /web/styles.css");
     println!("🌐 Network access URLs (if reachable on your LAN):");
     if let Ok(ifaces) = list_afinet_netifas() {
@@ -129,7 +145,10 @@ async fn main() {
             }
         }
     }
-    println!("(Set APPID_PORT to choose a specific port. Chose {}.)", actual_addr.port());
+    println!(
+        "(Set APPID_PORT to choose a specific port. Chose {}.)",
+        actual_addr.port()
+    );
 
     axum::serve(listener, app).await.unwrap();
 }

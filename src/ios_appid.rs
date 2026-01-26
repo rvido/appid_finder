@@ -68,7 +68,9 @@ struct LookupAppInfo {
 ///     }
 /// }
 /// ```
-pub async fn get_bundle_id(app_name: &str) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+pub async fn get_bundle_id(
+    app_name: &str,
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     // 1. Construct the URL with query parameters.
     // This is safer than string formatting as it handles URL encoding for the app_name.
     let url = reqwest::Url::parse_with_params(
@@ -121,30 +123,32 @@ pub async fn get_bundle_id(app_name: &str) -> Result<String, Box<dyn std::error:
 ///     }
 /// }
 /// ```
-pub async fn get_app_store_url(bundle_id: &str) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-    // 1. Construct the API URL with proper URL encoding using reqwest::Url::parse_with_params
+pub async fn get_app_store_url(
+    bundle_id: &str,
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    // Construct the API URL with proper URL encoding using reqwest::Url::parse_with_params
     let url = reqwest::Url::parse_with_params(
         "https://itunes.apple.com/lookup",
         &[("bundleId", bundle_id)],
     )?;
 
-    // 2. Perform the asynchronous HTTP GET request.
+    // Perform the asynchronous HTTP GET request.
     // The '?' operator will propagate any errors from the request.
     let response = reqwest::get(url).await?;
 
-    // 3. Check if the HTTP request was successful.
+    // Check if the HTTP request was successful.
     if !response.status().is_success() {
         return Err(format!("Request failed with status: {}", response.status()).into());
     }
 
-    // 4. Parse the JSON response body into our defined structs.
+    // Parse the JSON response body into our defined structs.
     // The '?' will propagate parsing errors.
     let lookup_data: LookupResponse = response.json().await?;
 
-    // 5. Extract the trackId from the first result.
+    // Extract the trackId from the first result.
     // The `results` array might be empty if the app isn't found.
     if let Some(app_info) = lookup_data.results.first() {
-        // 6. Construct the final App Store URL and return it.
+        // Construct the final App Store URL and return it.
         let app_store_url = format!("https://apps.apple.com/app/id{}", app_info.track_id);
         Ok(app_store_url)
     } else {
