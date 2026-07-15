@@ -55,6 +55,9 @@
                             class="search-input"
                             autocomplete="off"
                         >
+                        <button type="button" id="clearSearchBtn" class="clear-search-btn" style="display: none;" aria-label="Clear search">
+                            <i class="fas fa-times"></i>
+                        </button>
                         <button type="submit" class="search-button" id="searchButton">
                             <span class="button-text">Search</span>
                             <span class="button-loading">
@@ -90,6 +93,16 @@
                         </button>
                     </div>
                 </div>
+
+                <div class="search-history" id="searchHistorySection" style="display: none;">
+                    <span class="history-label">Recent searches:</span>
+                    <div class="history-tags-wrapper">
+                        <div class="history-tags" id="historyTags"></div>
+                        <button type="button" id="clearHistoryBtn" class="clear-history-btn">
+                            <i class="fas fa-trash-alt"></i> Clear
+                        </button>
+                    </div>
+                </div>
             </div>
         </main>
 
@@ -122,10 +135,19 @@
                 this.searchForm = document.getElementById('searchForm');
                 this.searchInput = document.getElementById('searchInput');
                 this.searchButton = document.getElementById('searchButton');
+                this.clearSearchBtn = document.getElementById('clearSearchBtn');
                 this.resultsSection = document.getElementById('resultsSection');
                 this.resultsContainer = document.getElementById('resultsContainer');
                 
+                this.searchHistorySection = document.getElementById('searchHistorySection');
+                this.historyTags = document.getElementById('historyTags');
+                this.clearHistoryBtn = document.getElementById('clearHistoryBtn');
+                
+                this.history = JSON.parse(localStorage.getItem('appid_search_history') || '[]');
+                
                 this.initEventListeners();
+                this.renderHistory();
+                this.toggleClearButton();
             }
 
             initEventListeners() {
@@ -140,8 +162,26 @@
                     tag.addEventListener('click', () => {
                         const searchTerm = tag.getAttribute('data-search');
                         this.searchInput.value = searchTerm;
+                        this.toggleClearButton();
                         this.performSearch();
                     });
+                });
+
+                // Clear button click
+                this.clearSearchBtn.addEventListener('click', () => {
+                    this.searchInput.value = '';
+                    this.toggleClearButton();
+                    this.searchInput.focus();
+                });
+
+                // Input event to toggle clear button
+                this.searchInput.addEventListener('input', () => {
+                    this.toggleClearButton();
+                });
+
+                // Clear history button click
+                this.clearHistoryBtn.addEventListener('click', () => {
+                    this.clearHistory();
                 });
 
                 // Input animations
@@ -164,6 +204,48 @@
                 this.searchButton.disabled = false;
             }
 
+            toggleClearButton() {
+                this.clearSearchBtn.style.display = this.searchInput.value.trim() ? 'flex' : 'none';
+            }
+
+            addToHistory(query) {
+                if (!query) return;
+                this.history = this.history.filter(item => item.toLowerCase() !== query.toLowerCase());
+                this.history.unshift(query);
+                this.history = this.history.slice(0, 8); // Keep last 8 searches
+                localStorage.setItem('appid_search_history', JSON.stringify(this.history));
+                this.renderHistory();
+            }
+
+            renderHistory() {
+                if (this.history.length === 0) {
+                    this.searchHistorySection.style.display = 'none';
+                    return;
+                }
+                this.searchHistorySection.style.display = 'block';
+                this.historyTags.innerHTML = this.history.map(item => `
+                    <button type="button" class="history-tag" data-search="${item.replace(/"/g, '&quot;')}">
+                        <i class="fas fa-history"></i> ${item}
+                    </button>
+                `).join('');
+
+                // Attach click listeners to history tags
+                this.historyTags.querySelectorAll('.history-tag').forEach(tag => {
+                    tag.addEventListener('click', () => {
+                        const searchTerm = tag.getAttribute('data-search');
+                        this.searchInput.value = searchTerm;
+                        this.toggleClearButton();
+                        this.performSearch();
+                    });
+                });
+            }
+
+            clearHistory() {
+                this.history = [];
+                localStorage.removeItem('appid_search_history');
+                this.renderHistory();
+            }
+
             async performSearch() {
                 const query = this.searchInput.value.trim();
                 
@@ -180,6 +262,9 @@
                     const data = await response.json();
                     
                     this.hideLoading();
+                    if (data && data.results && data.results.length > 0) {
+                        this.addToHistory(query);
+                    }
                     this.displayResults(data);
                 } catch (error) {
                     this.hideLoading();

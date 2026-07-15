@@ -5,7 +5,6 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information.
 
-use reqwest;
 use scraper::{Html, Selector};
 use url::Url;
 use urlencoding;
@@ -87,8 +86,11 @@ pub async fn find_app_id(
         search_query
     );
 
-    // Fetch the HTML content from the URL
-    let response = reqwest::get(&request_url).await?;
+    // Fetch the HTML content from the URL using the shared HTTP client.
+    let response = crate::http_client::get_client()
+        .get(&request_url)
+        .send()
+        .await?;
     if !response.status().is_success() {
         // Handle non-successful HTTP status codes
         eprintln!(

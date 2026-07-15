@@ -7,7 +7,7 @@ A Rust-based web application that discovers iOS and Android app bundle IDs insta
 - 🍎 **iOS Bundle IDs** - Look up bundle identifiers for iOS apps via the iTunes API
 - 🤖 **Android Package Names** - Scrape Google Play Store for Android app package names
 - 🔗 **Direct Store Links** - Get direct links to App Store and Google Play pages
-- 🌐 **Web Interface** - Beautiful, modern web UI for easy searching
+- 🌐 **Web Interface** - Beautiful, modern web UI with clear search option and local search history
 - 🚀 **REST API** - Simple API endpoints for programmatic access
 
 ## Installation
@@ -99,7 +99,8 @@ appid_finder/
 ├── src/
 │   ├── main.rs         # Web server and API endpoints
 │   ├── ios_appid.rs    # iOS App Store API integration
-│   └── android_appid.rs # Google Play Store scraping
+│   ├── android_appid.rs # Google Play Store scraping
+│   └── http_client.rs  # Shared HTTP client configuration
 └── web/
     ├── index.html      # Web interface
     └── styles.css      # Styling

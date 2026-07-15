@@ -17,6 +17,7 @@ use std::net::SocketAddr;
 use tower_http::{cors::CorsLayer, services::ServeDir};
 
 pub mod android_appid;
+pub mod http_client;
 pub mod ios_appid;
 
 #[axum::debug_handler]
@@ -33,33 +34,43 @@ async fn search_apps(Query(params): Query<HashMap<String, String>>) -> Json<serd
     }
 
     // Run iOS and Android lookups concurrently
-    let (ios_store_url_result, android_result) = tokio::join!(
-        ios_appid::get_app_store_url_by_name(query),
+    let (ios_result, android_result) = tokio::join!(
+        ios_appid::search_ios_app(query),
         android_appid::find_app_id(query)
     );
 
     let mut results = Vec::new();
 
-    // iOS processing: only add if we can also resolve bundle_id
-    if let Ok(store_url) = ios_store_url_result {
-        if let Ok(bundle_id) = ios_appid::get_bundle_id(query).await {
+    // iOS processing: retrieve name, bundle ID, and store URL in a single step
+    match ios_result {
+        Ok(Some(app_info)) => {
             results.push(serde_json::json!({
-                "name": query,
-                "bundleId": bundle_id,
+                "name": app_info.name,
+                "bundleId": app_info.bundle_id,
                 "platform": "iOS",
-                "storeUrl": store_url
+                "storeUrl": app_info.store_url
             }));
+        }
+        Ok(None) => {}
+        Err(e) => {
+            eprintln!("iOS search error for '{}': {}", query, e);
         }
     }
 
     // Android processing
-    if let Ok(Some(app_info)) = android_result {
-        results.push(serde_json::json!({
-            "name": query,
-            "bundleId": app_info.id,
-            "platform": "Android",
-            "storeUrl": app_info.url
-        }));
+    match android_result {
+        Ok(Some(app_info)) => {
+            results.push(serde_json::json!({
+                "name": query,
+                "bundleId": app_info.id,
+                "platform": "Android",
+                "storeUrl": app_info.url
+            }));
+        }
+        Ok(None) => {}
+        Err(e) => {
+            eprintln!("Android search error for '{}': {}", query, e);
+        }
     }
 
     let response = if results.is_empty() {

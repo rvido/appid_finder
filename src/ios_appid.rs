@@ -14,13 +14,20 @@ struct ApiResponse {
     results: Vec<SearchAppInfo>,
 }
 
-/// Represents an application's metadata within the `results` array for search.
-/// We use `#[serde(rename_all = "camelCase")]` to automatically convert
-/// the JSON's `bundleId` field to Rust's idiomatic `bundle_id`.
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct SearchAppInfo {
     bundle_id: String,
+    track_id: u64,
+    track_name: String,
+}
+
+/// Represents search result information for an iOS application.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct IosAppInfo {
+    pub name: String,
+    pub bundle_id: String,
+    pub store_url: String,
 }
 
 /// Represents the top-level structure of the iTunes Lookup API JSON response.
@@ -84,9 +91,11 @@ pub async fn get_bundle_id(
     )?;
 
     // 2. Perform the asynchronous GET request.
-    let response = reqwest::get(url)
+    let response = crate::http_client::get_client()
+        .get(url)
+        .send()
         .await?
-        .json::<ApiResponse>() // 3. Attempt to deserialize the JSON body into our ApiResponse struct.
+        .json::<ApiResponse>()
         .await?;
 
     // 4. Extract the first result. If no results are found, return a clear error.
@@ -134,7 +143,7 @@ pub async fn get_app_store_url(
 
     // Perform the asynchronous HTTP GET request.
     // The '?' operator will propagate any errors from the request.
-    let response = reqwest::get(url).await?;
+    let response = crate::http_client::get_client().get(url).send().await?;
 
     // Check if the HTTP request was successful.
     if !response.status().is_success() {
@@ -195,6 +204,42 @@ pub async fn get_app_store_url_by_name(
     let app_store_url = get_app_store_url(&bundle_id).await?;
 
     Ok(app_store_url)
+}
+
+/// Searches for an iOS app by name and retrieves its metadata in a single request.
+///
+/// Returns: An `Option<IosAppInfo>` containing the app's name, bundle ID, and store URL if found,
+/// or `None` otherwise.
+pub async fn search_ios_app(
+    app_name: &str,
+) -> Result<Option<IosAppInfo>, Box<dyn std::error::Error + Send + Sync>> {
+    let url = reqwest::Url::parse_with_params(
+        "https://itunes.apple.com/search",
+        &[
+            ("term", app_name),
+            ("entity", "software"),
+            ("country", "us"),
+            ("limit", "1"),
+        ],
+    )?;
+
+    let response = crate::http_client::get_client()
+        .get(url)
+        .send()
+        .await?
+        .json::<ApiResponse>()
+        .await?;
+
+    if let Some(app_info) = response.results.into_iter().next() {
+        let store_url = format!("https://apps.apple.com/app/id{}", app_info.track_id);
+        Ok(Some(IosAppInfo {
+            name: app_info.track_name,
+            bundle_id: app_info.bundle_id,
+            store_url,
+        }))
+    } else {
+        Ok(None)
+    }
 }
 
 // Unit tests for our library function.
