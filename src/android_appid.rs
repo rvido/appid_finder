@@ -7,13 +7,27 @@
 
 use scraper::{Html, Selector};
 use url::Url;
-use urlencoding;
 
 /// A struct to hold both the extracted URL and the App ID.
 #[derive(Debug)]
 pub struct AppInfo {
     pub url: String,
     pub id: String,
+}
+
+/// Maximum size of a Play Store search page we are willing to buffer.
+const MAX_BODY_BYTES: usize = 5 * 1024 * 1024;
+
+/// Returns true if `id` looks like a valid Android package name
+/// (e.g. "com.spotify.music"). This rejects anything that could be
+/// used for HTML/URL injection further down the line.
+fn is_valid_package_name(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 255
+        && id.contains('.')
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_')
 }
 
 /// Extracts the first app's detail URL and its App ID from the
@@ -28,42 +42,36 @@ fn extract_app_info_from_search(html_content: &str) -> Option<AppInfo> {
     // Define the CSS selector to find the app detail link
     // Targets any <a> tag whose 'href' attribute contains the unique identifier for
     // an app details page: "/store/apps/details?id=".
-    let selector = match Selector::parse(r#"a[href*="/store/apps/details?id="]"#) {
-        Ok(s) => s,
-        Err(_) => return None,
-    };
+    let selector = Selector::parse(r#"a[href*="/store/apps/details?id="]"#).ok()?;
+    let base_url = Url::parse("https://play.google.com").ok()?;
 
     // Find the first matching element (the primary app listing)
-    if let Some(element) = document.select(&selector).next() {
-        // Extract the 'href' attribute value (the relative URL path)
-        if let Some(url_path) = element.attr("href") {
-            // Reconstruct the full absolute URL for proper parsing
-            let base_url = "https://play.google.com";
-            let full_url = if url_path.starts_with(base_url) {
-                url_path.to_string()
-            } else {
-                format!("{}{}", base_url, url_path)
-            };
+    let url_path = document.select(&selector).next()?.attr("href")?;
 
-            // Use the 'url' crate to parse the URL and extract the 'id' parameter
-            if let Ok(url) = Url::parse(&full_url) {
-                for (key, value) in url.query_pairs() {
-                    if key == "id" {
-                        // Found the App ID, return both the full URL and the ID
-                        return Some(AppInfo {
-                            url: full_url,
-                            id: value.into_owned(),
-                        });
-                    }
-                }
-            } else {
-                eprintln!("Error: Could not parse URL retrieved from search result.");
-            }
+    // Resolve the (usually relative) href against the Play Store origin and
+    // extract the 'id' parameter.
+    let url = match base_url.join(url_path) {
+        Ok(url) => url,
+        Err(_) => {
+            eprintln!("Error: Could not parse URL retrieved from search result.");
+            return None;
         }
+    };
+    let id = url
+        .query_pairs()
+        .find(|(key, _)| key == "id")
+        .map(|(_, value)| value.into_owned())?;
+
+    if !is_valid_package_name(&id) {
+        return None;
     }
 
-    // Return None if the link, App ID, or URL parsing failed
-    None
+    // Build the store URL ourselves instead of trusting the scraped href,
+    // so it always points at play.google.com.
+    Some(AppInfo {
+        url: format!("https://play.google.com/store/apps/details?id={}", id),
+        id,
+    })
 }
 
 /// Searches for an app on the Google Play Store and returns its information.
@@ -100,11 +108,21 @@ pub async fn find_app_id(
         return Ok(None);
     }
 
-    // Extract the HTML content as text
-    let html_content = response.text().await?;
+    // Read the body with a size cap so a huge response cannot exhaust memory.
+    let mut response = response;
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await? {
+        if body.len() + chunk.len() > MAX_BODY_BYTES {
+            return Err("Play Store response too large".into());
+        }
+        body.extend_from_slice(&chunk);
+    }
+    let html_content = String::from_utf8_lossy(&body).into_owned();
 
-    // Parse the HTML to find the app information
-    Ok(extract_app_info_from_search(&html_content))
+    // HTML parsing is CPU-bound; run it off the async worker threads.
+    let app_info =
+        tokio::task::spawn_blocking(move || extract_app_info_from_search(&html_content)).await?;
+    Ok(app_info)
 }
 
 #[cfg(test)]
@@ -120,6 +138,26 @@ mod tests {
         assert!(app_info.is_some());
         let info = app_info.unwrap();
         assert_eq!(info.id, "com.spotify.music");
+        assert_eq!(
+            info.url,
+            "https://play.google.com/store/apps/details?id=com.spotify.music"
+        );
+    }
+
+    #[test]
+    fn test_extract_app_info_rejects_injected_id() {
+        let html_content = r#"
+            <a href="/store/apps/details?id=%3Cimg%20src%3Dx%20onerror%3Dalert(1)%3E"></a>
+        "#;
+        assert!(extract_app_info_from_search(html_content).is_none());
+    }
+
+    #[test]
+    fn test_extract_app_info_ignores_foreign_host() {
+        let html_content = r#"
+            <a href="https://evil.example/store/apps/details?id=com.spotify.music"></a>
+        "#;
+        let info = extract_app_info_from_search(html_content).unwrap();
         assert_eq!(
             info.url,
             "https://play.google.com/store/apps/details?id=com.spotify.music"

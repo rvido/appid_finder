@@ -113,7 +113,7 @@ appid_finder/
 - **reqwest** - HTTP client
 - **scraper** - HTML parsing for web scraping
 - **serde** / **serde_json** - JSON serialization
-- **tower-http** - HTTP middleware (CORS, static files)
+- **tower-http** - HTTP middleware (static files)
 
 ## Running Tests
 

@@ -263,7 +263,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_app_not_found() {
-        let app_name = "jhksfhjhaf";
+        let app_name = "nonexistentappxyz123test";
         let result = get_bundle_id(app_name).await;
         assert!(result.is_err());
         // Check if the error message is what we expect.

@@ -14,7 +14,15 @@ use axum::{
 use local_ip_address::list_afinet_netifas;
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use tower_http::{cors::CorsLayer, services::ServeDir};
+use tower::limit::ConcurrencyLimitLayer;
+use tower_http::services::ServeDir;
+
+/// Longest search query we forward to the upstream stores.
+const MAX_QUERY_CHARS: usize = 100;
+
+/// Maximum number of search requests handled at the same time. Each search
+/// makes two outbound requests, so this also caps upstream load.
+const MAX_CONCURRENT_SEARCHES: usize = 32;
 
 pub mod android_appid;
 pub mod http_client;
@@ -30,6 +38,14 @@ async fn search_apps(Query(params): Query<HashMap<String, String>>) -> Json<serd
             "results": [],
             "count": 0,
             "query": "Please provide a search query"
+        }));
+    }
+
+    if query.chars().count() > MAX_QUERY_CHARS {
+        return Json(serde_json::json!({
+            "results": [],
+            "count": 0,
+            "query": format!("Search query is too long (max {} characters)", MAX_QUERY_CHARS)
         }));
     }
 
@@ -53,7 +69,7 @@ async fn search_apps(Query(params): Query<HashMap<String, String>>) -> Json<serd
         }
         Ok(None) => {}
         Err(e) => {
-            eprintln!("iOS search error for '{}': {}", query, e);
+            eprintln!("iOS search error for {:?}: {}", query, e);
         }
     }
 
@@ -69,7 +85,7 @@ async fn search_apps(Query(params): Query<HashMap<String, String>>) -> Json<serd
         }
         Ok(None) => {}
         Err(e) => {
-            eprintln!("Android search error for '{}': {}", query, e);
+            eprintln!("Android search error for {:?}: {}", query, e);
         }
     }
 
@@ -104,13 +120,14 @@ async fn serve_index() -> Html<&'static str> {
 
 #[tokio::main]
 async fn main() {
-    let cors = CorsLayer::permissive();
     let app = Router::new()
-        .route("/api/search", get(search_apps))
+        .route(
+            "/api/search",
+            get(search_apps).layer(ConcurrencyLimitLayer::new(MAX_CONCURRENT_SEARCHES)),
+        )
         .route("/api/health", get(health_check))
         .route("/", get(serve_index))
-        .nest_service("/web", ServeDir::new("web"))
-        .layer(cors);
+        .nest_service("/web", ServeDir::new("web"));
 
     // Preferred port via env APPID_PORT else 3000; provide fallbacks if occupied.
     let configured_port: u16 = std::env::var("APPID_PORT")
