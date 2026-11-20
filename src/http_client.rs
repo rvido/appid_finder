@@ -28,3 +28,25 @@ pub fn get_client() -> &'static reqwest::Client {
             .expect("Failed to build HTTP client")
     })
 }
+
+/// Largest upstream response body we are willing to buffer.
+pub const MAX_BODY_BYTES: usize = 5 * 1024 * 1024;
+
+/// Checks the HTTP status, then reads the body with a size cap so a huge
+/// response cannot exhaust memory.
+pub async fn read_body_capped(
+    mut response: reqwest::Response,
+) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
+    let status = response.status();
+    if !status.is_success() {
+        return Err(format!("upstream returned HTTP {}", status).into());
+    }
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await? {
+        if body.len() + chunk.len() > MAX_BODY_BYTES {
+            return Err("upstream response too large".into());
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
+}

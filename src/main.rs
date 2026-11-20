@@ -8,14 +8,14 @@
 use axum::{
     Router,
     extract::Query,
-    response::{Html, Json},
+    http::header,
+    response::{Html, IntoResponse, Json},
     routing::get,
 };
 use local_ip_address::list_afinet_netifas;
-use std::collections::HashMap;
+use serde::Deserialize;
 use std::net::SocketAddr;
 use tower::limit::ConcurrencyLimitLayer;
-use tower_http::services::ServeDir;
 
 /// Longest search query we forward to the upstream stores.
 const MAX_QUERY_CHARS: usize = 100;
@@ -28,15 +28,21 @@ pub mod android_appid;
 pub mod http_client;
 pub mod ios_appid;
 
+#[derive(Deserialize)]
+struct SearchParams {
+    #[serde(default)]
+    q: String,
+}
+
 #[axum::debug_handler]
-async fn search_apps(Query(params): Query<HashMap<String, String>>) -> Json<serde_json::Value> {
-    let empty = String::new();
-    let query = params.get("q").unwrap_or(&empty).trim();
+async fn search_apps(Query(params): Query<SearchParams>) -> Json<serde_json::Value> {
+    let query = params.q.trim();
 
     if query.is_empty() {
         return Json(serde_json::json!({
             "results": [],
             "count": 0,
+            "errors": [],
             "query": "Please provide a search query"
         }));
     }
@@ -45,6 +51,7 @@ async fn search_apps(Query(params): Query<HashMap<String, String>>) -> Json<serd
         return Json(serde_json::json!({
             "results": [],
             "count": 0,
+            "errors": [],
             "query": format!("Search query is too long (max {} characters)", MAX_QUERY_CHARS)
         }));
     }
@@ -56,6 +63,8 @@ async fn search_apps(Query(params): Query<HashMap<String, String>>) -> Json<serd
     );
 
     let mut results = Vec::new();
+    // Short, user-facing messages. Error details stay in the server log.
+    let mut errors: Vec<&str> = Vec::new();
 
     // iOS processing: retrieve name, bundle ID, and store URL in a single step
     match ios_result {
@@ -70,6 +79,7 @@ async fn search_apps(Query(params): Query<HashMap<String, String>>) -> Json<serd
         Ok(None) => {}
         Err(e) => {
             eprintln!("iOS search error for {:?}: {}", query, e);
+            errors.push("App Store lookup failed");
         }
     }
 
@@ -77,7 +87,7 @@ async fn search_apps(Query(params): Query<HashMap<String, String>>) -> Json<serd
     match android_result {
         Ok(Some(app_info)) => {
             results.push(serde_json::json!({
-                "name": query,
+                "name": app_info.name.as_deref().unwrap_or(query),
                 "bundleId": app_info.id,
                 "platform": "Android",
                 "storeUrl": app_info.url
@@ -86,32 +96,70 @@ async fn search_apps(Query(params): Query<HashMap<String, String>>) -> Json<serd
         Ok(None) => {}
         Err(e) => {
             eprintln!("Android search error for {:?}: {}", query, e);
+            errors.push("Play Store lookup failed");
         }
     }
 
-    let response = if results.is_empty() {
-        serde_json::json!({
-            "results": [],
-            "count": 0,
-            "query": format!("No results found for: {}", query)
-        })
+    let message = if !results.is_empty() {
+        format!("Search results for: {}", query)
+    } else if errors.is_empty() {
+        format!("No results found for: {}", query)
     } else {
-        serde_json::json!({
-            "results": results,
-            "count": results.len(),
-            "query": format!("Search results for: {}", query)
-        })
+        format!("Could not complete the search for: {}", query)
     };
 
-    Json(response)
+    Json(serde_json::json!({
+        "count": results.len(),
+        "results": results,
+        "errors": errors,
+        "query": message
+    }))
 }
 
 async fn health_check() -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "status": "healthy",
         "service": "App ID Finder",
-        "version": "0.1.0"
+        "version": env!("CARGO_PKG_VERSION")
     }))
+}
+
+async fn serve_styles() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "text/css; charset=utf-8")],
+        include_str!("../web/styles.css"),
+    )
+}
+
+/// Resolves when the process gets Ctrl+C or (on Unix) SIGTERM.
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        if let Err(e) = tokio::signal::ctrl_c().await {
+            eprintln!("Failed to listen for Ctrl+C: {}", e);
+            std::future::pending::<()>().await;
+        }
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut sig) => {
+                sig.recv().await;
+            }
+            Err(e) => {
+                eprintln!("Failed to listen for SIGTERM: {}", e);
+                std::future::pending::<()>().await;
+            }
+        }
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
+    println!("Shutting down...");
 }
 
 async fn serve_index() -> Html<&'static str> {
@@ -127,7 +175,7 @@ async fn main() {
         )
         .route("/api/health", get(health_check))
         .route("/", get(serve_index))
-        .nest_service("/web", ServeDir::new("web"));
+        .route("/web/styles.css", get(serve_styles));
 
     // Preferred port via env APPID_PORT else 3000; provide fallbacks if occupied.
     let configured_port: u16 = std::env::var("APPID_PORT")
@@ -178,5 +226,8 @@ async fn main() {
         actual_addr.port()
     );
 
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await
+        .unwrap();
 }

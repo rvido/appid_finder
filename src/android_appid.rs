@@ -8,15 +8,18 @@
 use scraper::{Html, Selector};
 use url::Url;
 
-/// A struct to hold both the extracted URL and the App ID.
+/// A struct to hold the extracted URL, App ID and (if found) the app name.
 #[derive(Debug)]
 pub struct AppInfo {
     pub url: String,
     pub id: String,
+    /// The real app name, read from the link's `aria-label`.
+    /// `None` when the search page does not provide it.
+    pub name: Option<String>,
 }
 
-/// Maximum size of a Play Store search page we are willing to buffer.
-const MAX_BODY_BYTES: usize = 5 * 1024 * 1024;
+/// Longest app name we accept from the scraped page.
+const MAX_NAME_CHARS: usize = 200;
 
 /// Returns true if `id` looks like a valid Android package name
 /// (e.g. "com.spotify.music"). This rejects anything that could be
@@ -46,7 +49,15 @@ fn extract_app_info_from_search(html_content: &str) -> Option<AppInfo> {
     let base_url = Url::parse("https://play.google.com").ok()?;
 
     // Find the first matching element (the primary app listing)
-    let url_path = document.select(&selector).next()?.attr("href")?;
+    let link = document.select(&selector).next()?;
+    let url_path = link.attr("href")?;
+
+    // The first result link carries the app name in `aria-label`.
+    let name = link
+        .attr("aria-label")
+        .map(str::trim)
+        .filter(|n| !n.is_empty() && n.chars().count() <= MAX_NAME_CHARS)
+        .map(str::to_owned);
 
     // Resolve the (usually relative) href against the Play Store origin and
     // extract the 'id' parameter.
@@ -71,6 +82,7 @@ fn extract_app_info_from_search(html_content: &str) -> Option<AppInfo> {
     Some(AppInfo {
         url: format!("https://play.google.com/store/apps/details?id={}", id),
         id,
+        name,
     })
 }
 
@@ -99,24 +111,7 @@ pub async fn find_app_id(
         .get(&request_url)
         .send()
         .await?;
-    if !response.status().is_success() {
-        // Handle non-successful HTTP status codes
-        eprintln!(
-            "Error: Request failed with status code {}",
-            response.status()
-        );
-        return Ok(None);
-    }
-
-    // Read the body with a size cap so a huge response cannot exhaust memory.
-    let mut response = response;
-    let mut body = Vec::new();
-    while let Some(chunk) = response.chunk().await? {
-        if body.len() + chunk.len() > MAX_BODY_BYTES {
-            return Err("Play Store response too large".into());
-        }
-        body.extend_from_slice(&chunk);
-    }
+    let body = crate::http_client::read_body_capped(response).await?;
     let html_content = String::from_utf8_lossy(&body).into_owned();
 
     // HTML parsing is CPU-bound; run it off the async worker threads.
@@ -142,6 +137,30 @@ mod tests {
             info.url,
             "https://play.google.com/store/apps/details?id=com.spotify.music"
         );
+        assert_eq!(info.name, None);
+    }
+
+    #[test]
+    fn test_extract_app_info_reads_name() {
+        let html_content = r#"
+            <a href="/store/apps/details?id=com.spotify.music"
+               aria-label="  Spotify: Music and Podcasts "></a>
+        "#;
+        let info = extract_app_info_from_search(html_content).unwrap();
+        assert_eq!(info.name.as_deref(), Some("Spotify: Music and Podcasts"));
+    }
+
+    #[test]
+    fn test_extract_app_info_ignores_empty_or_long_name() {
+        let long = "x".repeat(MAX_NAME_CHARS + 1);
+        for label in ["   ", long.as_str()] {
+            let html_content = format!(
+                r#"<a href="/store/apps/details?id=com.spotify.music" aria-label="{}"></a>"#,
+                label
+            );
+            let info = extract_app_info_from_search(&html_content).unwrap();
+            assert_eq!(info.name, None);
+        }
     }
 
     #[test]
@@ -171,7 +190,10 @@ mod tests {
         assert!(app_info.is_none());
     }
 
+    // Live network tests: they scrape the real Play Store.
+    // Run them with `cargo test -- --ignored`.
     #[tokio::test]
+    #[ignore = "live network test"]
     async fn test_find_spotify_app_id() {
         let app_name = "spotify";
         let result = find_app_id(app_name).await;
@@ -181,9 +203,11 @@ mod tests {
         assert!(app_info.is_some());
         let info = app_info.unwrap();
         assert_eq!(info.id, "com.spotify.music");
+        assert!(info.name.is_some());
     }
 
     #[tokio::test]
+    #[ignore = "live network test"]
     async fn test_app_not_found() {
         let app_name = "some_non_existent_app_12345";
         let result = find_app_id(app_name).await;

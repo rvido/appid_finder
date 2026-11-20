@@ -13,7 +13,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>App ID Finder - iOS & Android Bundle IDs</title>
     <link rel="stylesheet" href="/web/styles.css">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet" integrity="sha512-9usAa10IRO0HhonpyAIVpjrylPvoDwiPUiKdWk5t3PyolY1cOd4DSE0Ga+ri4AuTroPR5aQvXU9xC6qOPnzFeg==" crossorigin="anonymous" referrerpolicy="no-referrer">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
@@ -323,8 +323,25 @@
 
             displayResults(data) {
                 this.resultsSection.style.display = 'block';
-                
-                if (data.results.length === 0) {
+                const errors = Array.isArray(data.errors) ? data.errors : [];
+                const warning = errors.length > 0 ? `
+                    <div class="search-warning" role="alert">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <span>${errors.map(escapeHtml).join(' · ')}. Results may be incomplete.</span>
+                    </div>
+                ` : '';
+
+                if (data.results.length === 0 && errors.length > 0) {
+                    this.resultsContainer.innerHTML = warning + `
+                        <div class="error-message">
+                            <div class="error-icon">
+                                <i class="fas fa-exclamation-triangle"></i>
+                            </div>
+                            <h3>Search Incomplete</h3>
+                            <p>${escapeHtml(data.query)}. Please try again later.</p>
+                        </div>
+                    `;
+                } else if (data.results.length === 0) {
                     this.resultsContainer.innerHTML = `
                         <div class="no-results">
                             <div class="no-results-icon">
@@ -338,7 +355,7 @@
                         </div>
                     `;
                 } else {
-                    this.resultsContainer.innerHTML = `
+                    this.resultsContainer.innerHTML = warning + `
                         <div class="results-header">
                             <h2>Search Results</h2>
                             <span class="results-count">${data.results.length} result${data.results.length !== 1 ? 's' : ''} found</span>

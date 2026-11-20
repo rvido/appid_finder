@@ -667,6 +667,19 @@ body {
     color: var(--text-secondary);
 }
 
+.search-warning {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    margin-bottom: var(--spacing-md);
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: rgba(255, 167, 38, 0.1);
+    border: 1px solid rgba(255, 167, 38, 0.35);
+    border-radius: var(--radius-md);
+    color: #ffb74d;
+    font-size: 0.95rem;
+}
+
 .footer {
     margin-top: var(--spacing-xl);
     padding: var(--spacing-xl) 0;
