@@ -6,22 +6,24 @@
 // See LICENSE file in the project root for full license information.
 
 use axum::{
-    Router,
+    BoxError, Router,
+    error_handling::HandleErrorLayer,
     extract::Query,
-    http::header,
+    http::{StatusCode, header},
     response::{Html, IntoResponse, Json},
-    routing::get,
+    routing::{get, get_service},
 };
 use local_ip_address::list_afinet_netifas;
 use serde::Deserialize;
 use std::net::SocketAddr;
-use tower::limit::ConcurrencyLimitLayer;
+use tower::ServiceBuilder;
 
 /// Longest search query we forward to the upstream stores.
 const MAX_QUERY_CHARS: usize = 100;
 
 /// Maximum number of search requests handled at the same time. Each search
-/// makes two outbound requests, so this also caps upstream load.
+/// makes two outbound requests, so this also caps upstream load. Requests
+/// over the limit are rejected at once with HTTP 503 (they do not queue).
 const MAX_CONCURRENT_SEARCHES: usize = 32;
 
 pub mod android_appid;
@@ -116,6 +118,36 @@ async fn search_apps(Query(params): Query<SearchParams>) -> Json<serde_json::Val
     }))
 }
 
+/// Response for a search rejected because the server is at its limit.
+async fn search_overloaded(_: BoxError) -> (StatusCode, Json<serde_json::Value>) {
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(serde_json::json!({
+            "results": [],
+            "count": 0,
+            "errors": ["Server is busy"],
+            "query": "Server is busy, please try again"
+        })),
+    )
+}
+
+/// GET route for `handler` that runs at most `MAX_CONCURRENT_SEARCHES` at once
+/// and rejects the rest with `search_overloaded`.
+fn with_search_limit<H, T>(handler: H) -> axum::routing::MethodRouter
+where
+    H: axum::handler::Handler<T, ()>,
+    T: 'static,
+{
+    // Build the service once. Clones of it share one concurrency counter.
+    get_service(
+        ServiceBuilder::new()
+            .layer(HandleErrorLayer::new(search_overloaded))
+            .load_shed()
+            .concurrency_limit(MAX_CONCURRENT_SEARCHES)
+            .service(handler.with_state(())),
+    )
+}
+
 async fn health_check() -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "status": "healthy",
@@ -169,10 +201,7 @@ async fn serve_index() -> Html<&'static str> {
 #[tokio::main]
 async fn main() {
     let app = Router::new()
-        .route(
-            "/api/search",
-            get(search_apps).layer(ConcurrencyLimitLayer::new(MAX_CONCURRENT_SEARCHES)),
-        )
+        .route("/api/search", with_search_limit(search_apps))
         .route("/api/health", get(health_check))
         .route("/", get(serve_index))
         .route("/web/styles.css", get(serve_styles));
@@ -230,4 +259,45 @@ async fn main() {
         .with_graceful_shutdown(shutdown_signal())
         .await
         .unwrap();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::Request;
+    use std::time::Duration;
+    use tower::ServiceExt;
+
+    async fn slow_handler() -> &'static str {
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        "ok"
+    }
+
+    #[tokio::test]
+    async fn test_search_limit_rejects_overflow_with_503() {
+        let app = Router::new().route("/s", with_search_limit(slow_handler));
+        let extra = 5;
+        let handles: Vec<_> = (0..MAX_CONCURRENT_SEARCHES + extra)
+            .map(|_| {
+                let app = app.clone();
+                tokio::spawn(async move {
+                    let req = Request::get("/s").body(Body::empty()).unwrap();
+                    app.oneshot(req).await.unwrap().status()
+                })
+            })
+            .collect();
+
+        let mut ok = 0;
+        let mut busy = 0;
+        for h in handles {
+            match h.await.unwrap() {
+                StatusCode::OK => ok += 1,
+                StatusCode::SERVICE_UNAVAILABLE => busy += 1,
+                other => panic!("unexpected status {other}"),
+            }
+        }
+        assert_eq!(ok, MAX_CONCURRENT_SEARCHES);
+        assert_eq!(busy, extra);
+    }
 }

@@ -7,7 +7,7 @@ edition = "2024"
 # Web server framework
 axum = { version = "0.8", features = ["macros"] }
 tokio = { version = "1.54", features = ["full"] }
-tower = { version = "0.5", features = ["limit"] }
+tower = { version = "0.5", features = ["limit", "load-shed"] }
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }

@@ -319,6 +319,7 @@
             clearResults() {
                 this.resultsContainer.innerHTML = '';
                 this.resultsSection.style.display = 'none';
+                hideDownloadBar();
             }
 
             displayResults(data) {
@@ -413,6 +414,8 @@
             }
 
             showError(message) {
+                // Old results are gone, so their download must go too.
+                hideDownloadBar();
                 this.resultsSection.style.display = 'block';
                 this.resultsContainer.innerHTML = `
                     <div class="error-message">
@@ -468,6 +471,11 @@
                     }
                 });
             });
+        }
+
+        function hideDownloadBar() {
+            document.getElementById('downloadBar').style.display = 'none';
+            document.getElementById('downloadJsonBtn').onclick = null;
         }
 
         // JSON download button handler
