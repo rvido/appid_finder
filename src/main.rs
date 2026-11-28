@@ -198,6 +198,19 @@ async fn serve_index() -> Html<&'static str> {
     Html(include_str!("../web/index.html"))
 }
 
+/// Ports to try, in order. With `APPID_PORT` set, only that port is tried,
+/// so a busy port is an error instead of a silent move to another port.
+/// Without it: 3000, then 3001, then a random free port (0).
+fn candidate_ports(env_port: Option<&str>) -> Result<Vec<u16>, String> {
+    match env_port.map(str::trim) {
+        None | Some("") => Ok(vec![3000, 3001, 0]),
+        Some(v) => v
+            .parse::<u16>()
+            .map(|p| vec![p])
+            .map_err(|_| format!("APPID_PORT={:?} is not a valid port (0-65535)", v)),
+    }
+}
+
 #[tokio::main]
 async fn main() {
     let app = Router::new()
@@ -206,54 +219,54 @@ async fn main() {
         .route("/", get(serve_index))
         .route("/web/styles.css", get(serve_styles));
 
-    // Preferred port via env APPID_PORT else 3000; provide fallbacks if occupied.
-    let configured_port: u16 = std::env::var("APPID_PORT")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(3000);
-    let mut candidate_ports = vec![configured_port];
-    if configured_port != 3001 {
-        candidate_ports.push(3001);
-    }
-    // ephemeral fallback
-    candidate_ports.push(0);
-
-    let listener = {
-        let mut bound = None;
-        for p in candidate_ports {
-            let addr: SocketAddr = format!("0.0.0.0:{}", p).parse().unwrap();
-            match tokio::net::TcpListener::bind(addr).await {
-                Ok(l) => {
-                    bound = Some(l);
-                    break;
-                }
-                Err(e) => {
-                    eprintln!("Port {} unavailable: {}", p, e);
-                    continue;
-                }
-            }
+    let ports = match candidate_ports(std::env::var("APPID_PORT").ok().as_deref()) {
+        Ok(ports) => ports,
+        Err(msg) => {
+            eprintln!("Error: {}", msg);
+            std::process::exit(1);
         }
-        bound.expect("Failed to bind any candidate port")
+    };
+    let port_was_set = ports.len() == 1;
+
+    let mut listener = None;
+    for p in ports {
+        let addr = SocketAddr::from(([0, 0, 0, 0], p));
+        match tokio::net::TcpListener::bind(addr).await {
+            Ok(l) => {
+                listener = Some(l);
+                break;
+            }
+            Err(e) if port_was_set => {
+                eprintln!("Error: cannot use APPID_PORT={}: {}", p, e);
+                eprintln!("Stop the program that uses this port, or set a different APPID_PORT.");
+                std::process::exit(1);
+            }
+            Err(e) => eprintln!("Port {} unavailable: {}", p, e),
+        }
+    }
+    let Some(listener) = listener else {
+        eprintln!("Error: could not bind any port");
+        std::process::exit(1);
     };
 
-    let actual_addr = listener.local_addr().unwrap();
+    let port = listener.local_addr().unwrap().port();
     println!(
-        "🚀 App ID Finder server listening on http://{}",
-        actual_addr
+        "🚀 App ID Finder server listening on all interfaces, port {}",
+        port
     );
+    println!("   http://localhost:{}", port);
     println!("Endpoints: /api/search?q=app | /api/health | /web/styles.css");
     println!("🌐 Network access URLs (if reachable on your LAN):");
     if let Ok(ifaces) = list_afinet_netifas() {
         for (_name, ip) in ifaces {
             if ip.is_ipv4() && !ip.is_loopback() {
-                println!("   http://{}:{}", ip, actual_addr.port());
+                println!("   http://{}:{}", ip, port);
             }
         }
     }
-    println!(
-        "(Set APPID_PORT to choose a specific port. Chose {}.)",
-        actual_addr.port()
-    );
+    if !port_was_set {
+        println!("(Set APPID_PORT to choose a specific port.)");
+    }
 
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
@@ -272,6 +285,15 @@ mod tests {
     async fn slow_handler() -> &'static str {
         tokio::time::sleep(Duration::from_millis(300)).await;
         "ok"
+    }
+
+    #[test]
+    fn test_candidate_ports() {
+        assert_eq!(candidate_ports(None), Ok(vec![3000, 3001, 0]));
+        assert_eq!(candidate_ports(Some("")), Ok(vec![3000, 3001, 0]));
+        assert_eq!(candidate_ports(Some(" 8080 ")), Ok(vec![8080]));
+        assert!(candidate_ports(Some("80a")).is_err());
+        assert!(candidate_ports(Some("70000")).is_err());
     }
 
     #[tokio::test]
